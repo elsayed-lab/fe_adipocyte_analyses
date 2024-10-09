@@ -1,0 +1,4 @@
+glpk
+imagemagick
+mpfr
+netcdf4

@@ -1,0 +1,88 @@
+Bootstrap: docker
+From: debian:stable
+
+## Order of sections:
+## %labels:      unknown, storing metadata
+## %files:       are before %post or installation procedures.
+## %setup:       in the host-system after base OS install.
+## %post:        in the container after base OS install.
+## %test:        run at end of build process.
+## %environment: sourced at runtime, not build; if needed at build, do it in %post.
+## %runscript:   writes the container file /singularity and is run via 'singularity run'
+
+%apphelp hpgltools_test
+echo "Run the hpgltools test suite."
+
+
+%apprun hpgltools_test
+echo "Running the hpgltools test suite."
+exec cd /data/hpgltools && make test
+
+
+%environment
+## If this works properly, I can delete the bashrc, apparently the contents of this stanza are
+## written to /.singularity.d/env/90-environment.sh
+## As of this writing, it appears VERSION is not propagated to the %post block, therefore
+## the definition is repeated there.
+. /usr/local/etc/bashrc
+
+
+## Instead of copying files within the setup section, one should use the files block, I think because
+## this is not run with elevated permissions.
+%files
+local/etc/bashrc /usr/local/etc/bashrc
+local/etc/deb_packages.txt /usr/local/etc/deb_packages.txt
+local/etc/conda_packages.txt /usr/local/etc/conda_packages.txt
+local/bin/bootstrap.R /usr/local/bin/bootstrap.R
+local/bin/bootstrap.sh /usr/local/bin/bootstrap.sh
+local/bin/runscript.sh /usr/local/bin/runscript.sh
+data/Makefile /data/Makefile
+data/renv.lock /data/renv.lock
+data/renv/activate.R /data/renv/activate.R
+data/renv/settings.json /data/renv/settings.json
+data/renv/.gitignore /data/renv/.gitignore
+local/etc/template /sw/modules/template
+data/README.Rmd /data/README.Rmd
+data/helper_functions.R /data/helper_functions.R
+data/kim_IDD_IAD_pipeline_10152022.Rmd /data/kim_IDD_IAD_pipeline_10152022.Rmd
+data/sample_sheets/Experimental_design_Kim_v1.0.xlsx /data/sample_sheets/Experimental_design_Kim_v1.0.xlsx
+data/kim.tar /data/kim.tar
+
+
+%help
+String printed when "singularity help image.simg" is run.
+
+
+%labels
+Maintainer Ashton Trey Belew <abelew@umd.edu>
+
+
+%post
+echo "export CONTAINER_VERSION='202408'" > /versions.txt
+echo "export BIOC_VERSION='3.19'" >> /versions.txt
+echo "export R_VERSION='4.4.1'" >> /versions.txt
+##echo "export HPGLTOOLS_COMMIT='2ba131c696f93b44a2360e412fbba5b008699c83'" >> /versions.txt
+/usr/local/bin/bootstrap.sh
+
+
+%runscript
+/usr/bin/time -f '\t%E real,\t%U user,\t%S sys,\t%K amem,\t%M mmem' /usr/local/bin/runscript.sh $*
+
+
+## The setup block will be used to prepare material which I cannot acquire
+## automatically.  Ideally this should just create some directories for the container.
+##   ** NOTE ** This section is run as root! So be careful.
+%setup
+mkdir -p ${SINGULARITY_ROOTFS}/usr/local/bin
+mkdir -p ${SINGULARITY_ROOTFS}/usr/local/etc
+mkdir -p ${SINGULARITY_ROOTFS}/data/preprocessing
+mkdir -p ${SINGULARITY_ROOTFS}/data/sample_sheets
+mkdir -p ${SINGULARITY_ROOTFS}/output
+mkdir -p ${SINGULARITY_ROOTFS}/sw/local/conda
+mkdir -p ${SINGULARITY_ROOTFS}/sw/local/R/renv_cache
+mkdir -p ${SINGULARITY_ROOTFS}/sw/modules
+
+
+%test
+echo "Making sure hpgltools got installed."
+test -d "/data/hpgltools" || true

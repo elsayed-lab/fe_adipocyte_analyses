@@ -1,0 +1,649 @@
+---
+title: 'Kim Lab: IDD v IAD (Added GSEA)'
+author: "Theresa Alexander"
+date: "2022-09-27"
+output:
+  html_document:
+    code_download: true
+    code_folding: hide
+    fig_caption: true
+    fig_height: 7
+    fig_width: 7
+    highlight: tango
+    keep_md: false
+    mode: selfcontained
+    number_sections: true
+    self_contained: true
+    theme: readable
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+    toc_depth: 5
+  rmdformats::readthedown:
+    code_download: true
+    code_folding: show
+    df_print: paged
+    fig_caption: true
+    fig_height: 7
+    fig_width: 7
+    highlight: tango
+    width: 300
+    keep_md: false
+    mode: selfcontained
+    toc_float: true
+  BiocStyle::html_document:
+    code_download: true
+    code_folding: show
+    fig_caption: true
+    fig_height: 7
+    fig_width: 7
+    highlight: tango
+    keep_md: false
+    mode: selfcontained
+    toc_float: true
+---
+<style type="text/css">
+body, td {
+  font-size: 16px;
+}
+code.r{
+  font-size: 16px;
+}
+pre {
+ font-size: 16px
+}
+</style>
+
+# Libraries Setup
+
+```{r libraries, message=FALSE}
+library("hpgltools")
+library("ggplot2")
+library("patchwork")
+library("plotly")
+library("RColorBrewer")
+library("DT")
+library("dplyr")
+library("gprofiler2")
+library("DESeq2")
+source("helper_functions.R")
+```
+
+## Changelog
+
+- hard-coded the year/month for downloading annotations (atb)
+- removed Theresa's notes as per Najib's request
+- minor formatting changes while I read
+
+## Updates
+
+- CL versus Saline after adjusting for diet effects
+- Added IDD_Saline - IAD_Saline / IDD_CL - IAD_CL contrast <br>
+- Added IDD_Saline-IDD_CL / IAD_Saline-IAD_CL contrast <br>
+
+# M. musculus
+
+## Annotations
+
+I am using mm38_100.
+
+```{r annotations}
+mm_annot <- load_biomart_annotations(species="mmusculus", year="2023", month="07")
+
+mm_annot <- mm_annot[["annotation"]]
+mm_annot[["txid"]] <- paste0(mm_annot[["ensembl_transcript_id"]], ".", mm_annot[["version"]])
+rownames(mm_annot) <- make.names(mm_annot[["ensembl_gene_id"]], unique=TRUE)
+tx_gene_map <- mm_annot[, c("txid", "ensembl_gene_id")]
+```
+
+So, I now have a table of mouse annotations.
+
+## Hisat2 expressionset
+
+The sample sheet is called 'Experimental_design_Kim_v1.0.xlsx' and has
+a column to point to the names of the count tables to load.
+Here I combine the metadata, count data, and annotations.
+
+```{r hisat2}
+hisat_annot <- mm_annot
+##rownames(hisat_annot) <- paste0("gene:", rownames(hisat_annot))
+mm38_hisat <- create_expt("sample_sheets/Experimental_design_Kim_v1.0.xlsx",
+                          gene_info=hisat_annot)
+```
+
+```{r}
+color_condition <- mm38_hisat$initial_metadata$condition
+color_condition <- factor(color_condition, levels = c("IDD-Saline", "IDD-CL", "IAD-Saline", "IAD-CL"))
+
+color_values <- c("#F8766D", "#FBADA7",  "#7CAE00", "#D3EE8F")#, "#00BFC4",  "#9AD2D3",  )
+```
+
+# Summary Plots
+
+```{r, message=FALSE, warning = FALSE}
+plot_libsize(mm38_hisat)
+
+plot_nonzero(mm38_hisat)
+```
+
+# Normalize Expression
+
+First we will filter out the genes which have low counts across all
+samples. Then I will normalize without background correction (it was
+determined there is no need for adjusting for background noise after
+evaluating the SVA correction).
+
+```{r}
+mm38_filt <- normalize_expt(mm38_hisat, filter=TRUE)
+mm38_norm <- normalize_expt(mm38_filt, convert="cpm", norm = "quant", transform="log2")
+mm38_nb <- normalize_expt(mm38_hisat, filter = TRUE, convert = "cpm",
+                          transform = "log2", batch = "svaseq")
+```
+
+# PCA
+
+```{r pca, message = FALSE}
+pca_norm <- plot_pca(mm38_norm, plot_labels = FALSE)
+pca_norm$plot +
+    scale_color_manual(values = color_values,
+                    aesthetics = "color") +
+    scale_fill_manual(values = color_values,
+                    aesthetics = "fill") +
+  guides(fill = "none")
+
+plot_pca(mm38_nb)
+```
+
+```{r, echo=FALSE, eval=FALSE}
+plot_pca(mm38_norm, plot_labels = FALSE)$plot
+pca_norm_plot <- ggplot(as.data.frame(pca_norm$result$v), aes(x = PC1, y = PC2)) +
+  geom_point(aes(color = color_condition),
+                      size = 5) +
+  scale_color_manual(values = color_values,
+                    aesthetics = "color") +
+  theme_classic() +
+  #labs(color="Cell Compartment/Genotype")   +
+  ggtitle("PCA with No Batch Correction")  +
+  labs(x = paste0("PC1: 25.79% variance"),
+       y =  paste0("PC2: 18.80% variance"))
+
+plot_pca(mm38_norm, plot_labels = FALSE)$plot
+pca_norm_plot
+#+
+#  geom_label_repel(data = as.data.frame(pca_norm$result$v[c(16:18),]), aes(label = rownames(pca_norm$result$v)[16:18]),
+#                   box.padding = 1)
+
+
+pca_sva_plot <- ggplot(as.data.frame(pca_sva$result$v), aes(x = PC1, y = PC2)) +
+  geom_point(aes(color = color_condition),
+                      size = 5) +
+  scale_color_manual(values = color_values,
+                    aesthetics = "color") +
+  theme_classic() +
+  labs(color="Cell Compartment/Genotype")   +
+  ggtitle("PCA with SVA Batch Correction")  +
+  labs(x = paste0("PC1: 65.39% variance"),
+       y =  paste0("PC2: 15.25% variance")) +
+  geom_label_repel(data = as.data.frame(pca_sva$result$v[c(16:18),]), aes(label = rownames(pca_sva$result$v)[16:18]),
+                   box.padding = 2)
+
+pca_norm_plot+ ggtitle("PCA Pre SVA") +
+  pca_sva_plot + ggtitle("PCA Post SVA") + plot_layout(guides = "collect") & theme(legend.position = "bottom")
+
+pca_norm_plot + ggtitle("PCA Normalized Counts")
+```
+
+# Tables for Number of Samples
+
+How many samples do we have currently for each group?
+
+```{r sample_table}
+table(pData(mm38_hisat)[,c( "diet", "treatment")])
+```
+
+# Differential Expression Analysis {.tabset}
+
+In the conditions column, we have IDD-Saline, IDD-CL, IAD-Saline, and
+IAD-CL. For the differential expression analysis, we will perform the
+following contrasts: <br>
+
+**Normal Pairwise Contrasts:**<br>
+IDD-CL vs IDD-Saline <br>
+IAD-CL vs IAD-Saline <br>
+IDD-CL vs IAD-CL <br>
+IDD-Saline vs IAD-Saline <br>
+
+**Contrasts after adjustment:**<br>
+CL versus Saline after adjusting for diet <br>
+IDD versus IAD after adjusting for CL/Saline treatment <br>
+
+I will conduct these contrasts below and provide a volcano plot (both
+interactive and static), as well as a searchable table of the
+significant DE results for each contrast.<br>
+
+```{r DE}
+mm_de_normal <- all_pairwise(mm38_filt, do_ebseq = FALSE,
+                             model_batch = "svaseq", parallel = FALSE)
+mm_de_normal
+
+keepers <- list("IDDCL_vs_IADCL" = c("IDDCL", "IADCL"),
+                "IDDSaline_vs_IADSaline" = c("IDDSaline", "IADSaline"),
+                "IDDSaline_vs_IDDCL" = c("IDDSaline", "IDDCL"),
+                "IADSaline_vs_IADCL" = c("IADSaline", "IADCL"))
+mm_de_tables <- combine_de_tables(mm_de_normal, excel="excel/DE_20221003.xlsx",
+                                  keepers = keepers)
+mm_de_tables
+
+mm_de_sig <- extract_significant_genes(mm_de_tables,
+                                       excel="excel/DE_sig_20221003.xlsx",
+                                       according_to = "deseq")
+mm_de_sig
+
+res_tbls <- c()
+for (t in seq_along(keepers)) {
+  tbl <- names(keepers)[t]
+  deseq_tbl <- mm_de_normal$deseq$all_tables[[tbl]]
+  res_tbls[[tbl]] <- merge(deseq_tbl, hisat_annot, by = "row.names")
+  res_tbls[[tbl]] <- set_sig_limma(res_tbls[[tbl]],
+                                   factors = c(paste(gsub("\\_.*","",tbl), "\nEnriched"),
+                                               paste(sub('.*\\_', '', tbl), "\nEnriched")))
+  res_tbls[[paste0(tbl, "volc_plotly")]] <- volc_plot(res_tbls[[tbl]],
+                                                      title = paste("Volcano Plot:", tbl),
+                                                      type = "plotly",
+                                                      tbl = "limma",
+                                                      gene_name_col = "external_gene_name")
+  res_tbls[[paste0(tbl, "volc_ggplot")]] <- volc_plot(res_tbls[[tbl]],
+                                                      title = paste("Volcano Plot:", tbl),
+                                                      tbl = "limma")
+}
+```
+
+## IDD: CL vs Saline
+
+**Volcano Plot**
+
+```{r}
+res_tbls$IDDSaline_vs_IDDCLvolc_plotly
+```
+
+```{r, echo=FALSE, eval=FALSE}
+#This is just a static version of the plot above
+res_tbls$IDDSaline_vs_IDDCLvolc_ggplot
+```
+
+**Table of Significant DE results**
+
+This table is significant results with adjusted p-value < 0.05 and
+log2FC greater than **.5**.
+
+```{r}
+res_tbls$IDDSaline_vs_IDDCL %>%
+  filter(abs(logFC) > .5 & adj.P.Val < 0.05) %>%
+  arrange(desc(logFC)) %>%
+  select("ensembl_gene_id", "mgi_symbol", "description", "logFC", "adj.P.Val", "Significance") %>%
+  DT::datatable(rownames = FALSE)
+```
+
+**GSEA**
+
+```{r}
+IDD_genes <- res_tbls$IDDSaline_vs_IDDCL %>%
+  filter(abs(logFC) >= .5 & adj.P.Val <= 0.05) %>%
+    arrange(desc(abs(logFC)))
+IDD_gost <- gost(query = IDD_genes$ensembl_gene_id,
+                organism = "mmusculus", ordered_query = TRUE,
+                evcodes = TRUE)
+```
+
+```{r}
+#IDD Saline Enriched
+IDD_gost$result %>%
+  select(term_name, p_value, term_size, intersection_size, recall, source, intersection) %>%
+  arrange(desc(recall)) %>%
+  filter(source == "GO:BP" | source == "GO:MF" | source == "GO:CC") %>%
+  datatable(rownames = FALSE, caption = "GO: IDD Significant GSEA")
+
+IDD_gost$result %>%
+  select(term_name, p_value, term_size, intersection_size, recall, source, intersection) %>%
+  arrange(desc(recall)) %>%
+  filter(source == "REAC") %>%
+  datatable(rownames = FALSE, caption = "REAC: IDD Significant GSEA")
+
+IDD_gost$result %>%
+  select(term_name, p_value, term_size, intersection_size, recall, source, intersection) %>%
+  arrange(desc(recall)) %>%
+  filter(source == "KEGG") %>%
+  datatable(rownames = FALSE, caption = "KEGG: IDD Significant GSEA")
+```
+
+```{r}
+##### IDD Enriched
+gostplot(IDD_gost, capped = FALSE, interactive = TRUE)
+```
+
+## IAD: CL vs Saline
+
+**Volcano Plot**
+
+```{r}
+res_tbls$IADSaline_vs_IADCLvolc_plotly
+```
+
+```{r, echo=FALSE, eval=FALSE}
+#This is just a static version of the plot above
+res_tbls$IADSaline_vs_IADCLvolc_ggplot
+```
+
+**Table of Significant DE results**
+
+```{r}
+res_tbls$IADSaline_vs_IADCL %>%
+  filter(abs(logFC) > .5 & adj.P.Val < 0.05) %>%
+  arrange(desc(logFC)) %>%
+  select("ensembl_gene_id", "mgi_symbol", "description", "logFC", "adj.P.Val", "Significance") %>%
+  DT::datatable(rownames = FALSE)
+```
+
+**GSEA**
+
+```{r}
+IAD_genes <- res_tbls$IADSaline_vs_IADCL %>%
+  filter(abs(logFC) >= .5 & adj.P.Val <= 0.05) %>%
+    arrange(desc(abs(logFC)))
+IAD_gost <- gost(query = IAD_genes$ensembl_gene_id,
+                organism = "mmusculus", ordered_query = TRUE,
+                evcodes = TRUE)
+```
+
+```{r}
+#IAD Saline Enriched
+IAD_gost$result %>%
+  select(term_name, p_value, term_size, intersection_size, recall, source, intersection) %>%
+  arrange(desc(recall)) %>%
+  filter(source == "GO:BP" | source == "GO:MF" | source == "GO:CC") %>%
+  datatable(rownames = FALSE, caption = "GO: IAD Significant GSEA")
+```
+
+```{r}
+##### IAD Enriched
+gostplot(IAD_gost, capped = FALSE, interactive = TRUE)
+```
+
+## CL: IDD vs IAD
+
+**Volcano Plot**
+
+```{r}
+res_tbls$IDDCL_vs_IADCLvolc_plotly
+```
+
+```{r, echo=FALSE, eval=FALSE}
+#This is just a static version of the plot above
+res_tbls$IDDCL_vs_IADCLvolc_ggplot
+```
+
+**Table of Significant DE results**
+
+```{r}
+res_tbls$IDDCL_vs_IADCL %>%
+  filter(abs(logFC) > .5 & adj.P.Val < 0.05) %>%
+  arrange(desc(logFC)) %>%
+  select("ensembl_gene_id", "mgi_symbol", "description", "logFC", "adj.P.Val", "Significance") %>%
+  DT::datatable(rownames = FALSE)
+```
+
+**GSEA**
+
+```{r}
+CL_genes <- res_tbls$IDDCL_vs_IADCL %>%
+  filter(abs(logFC) >= .5 & adj.P.Val <= 0.05) %>%
+    arrange(desc(abs(logFC)))
+CL_gost <- gost(query = CL_genes$ensembl_gene_id,
+                organism = "mmusculus", ordered_query = TRUE,
+                evcodes = TRUE)
+```
+
+```{r}
+#CL Saline Enriched
+CL_gost$result %>%
+  select(term_name, p_value, term_size, intersection_size, recall, source, intersection) %>%
+  arrange(desc(recall)) %>%
+  filter(source == "GO:BP" | source == "GO:MF" | source == "GO:CC") %>%
+  datatable(rownames = FALSE, caption = "GO: CL Significant GSEA")
+CL_gost$result %>%
+  select(term_name, p_value, term_size, intersection_size, recall, source, intersection) %>%
+  arrange(desc(recall)) %>%
+  filter(source == "REAC") %>%
+  datatable(rownames = FALSE, caption = "REAC: CL Significant GSEA")
+CL_gost$result %>%
+  select(term_name, p_value, term_size, intersection_size, recall, source, intersection) %>%
+  arrange(desc(recall)) %>%
+  filter(source == "KEGG") %>%
+  datatable(rownames = FALSE, caption = "KEGG: CL Significant GSEA")
+```
+
+```{r}
+##### CL Enriched
+gostplot(CL_gost, capped = FALSE, interactive = TRUE)
+```
+
+## Saline: IDD vs IAD
+
+**Volcano Plot**
+
+```{r}
+res_tbls$IDDSaline_vs_IADSalinevolc_plotly
+```
+
+```{r, echo=FALSE, eval=FALSE}
+#This is just a static version of the plot above
+res_tbls$IDDSaline_vs_IADSalinevolc_ggplot
+```
+
+**Table of Significant DE results**
+
+```{r}
+res_tbls$IDDSaline_vs_IADSaline %>%
+  filter(abs(logFC) > 1 & adj.P.Val < 0.05) %>%
+  arrange(desc(logFC)) %>%
+  select("ensembl_gene_id", "mgi_symbol", "description", "logFC", "adj.P.Val", "Significance") %>%
+  DT::datatable(rownames = FALSE)
+```
+
+**GSEA**
+
+```{r}
+Saline_genes <- res_tbls$IDDSaline_vs_IADSaline %>%
+  filter(abs(logFC) >= .5 & adj.P.Val <= 0.05) %>%
+    arrange(desc(abs(logFC)))
+Saline_gost <- gost(query = Saline_genes$ensembl_gene_id,
+                organism = "mmusculus", ordered_query = TRUE,
+                evcodes = TRUE)
+```
+
+```{r}
+#CL Saline Enriched
+Saline_gost$result %>%
+  select(term_name, p_value, term_size, intersection_size, recall, source, intersection) %>%
+  arrange(desc(recall)) %>%
+  filter(source == "GO:BP" | source == "GO:MF" | source == "GO:CC") %>%
+  datatable(rownames = FALSE, caption = "GO: Saline Significant GSEA")
+Saline_gost$result %>%
+  select(term_name, p_value, term_size, intersection_size, recall, source, intersection) %>%
+  arrange(desc(recall)) %>%
+  filter(source == "REAC") %>%
+  datatable(rownames = FALSE, caption = "REAC: Saline Significant GSEA")
+Saline_gost$result %>%
+  select(term_name, p_value, term_size, intersection_size, recall, source, intersection) %>%
+  arrange(desc(recall)) %>%
+  filter(source == "KEGG") %>%
+  datatable(rownames = FALSE, caption = "KEGG: Saline Significant GSEA")
+```
+
+```{r}
+##### CL Enriched
+gostplot(Saline_gost, capped = FALSE, interactive = TRUE)
+```
+
+# Comparison Between Contrasts
+
+## CL versus Saline after adjusting for diet
+
+```{r, warning = FALSE}
+countdata <- exprs(mm38_filt)
+coldata <- colData(mm38_filt)
+ddsMat <- DESeqDataSetFromMatrix(countData = countdata,
+                                 colData = coldata,
+                                 design = ~ diet + treatment)
+dds <- DESeq(ddsMat)
+res <- results(dds)
+res <- merge(as.data.frame(res), hisat_annot, by = 0)
+res <- res[!is.na(res$padj),]
+res <- set_sig(res, factors = c("Saline \n Enriched", "CL \n Enriched"))
+volc_plot(res_tbl = res, type = "plotly", title = "Saline versus CL after adjusting for Diet")
+
+res %>%
+  filter(padj < 0.05 & abs(log2FoldChange) >= 1) %>%
+  select("ensembl_gene_id", "mgi_symbol", "description", "log2FoldChange", "padj", "Significance") %>%
+  arrange(desc(log2FoldChange)) %>%
+  datatable(rownames = FALSE)
+```
+
+**GSEA**
+
+```{r}
+adj_genes <- res %>%
+  filter(padj < 0.05 & abs(log2FoldChange) >= 1) %>%
+    arrange(desc(abs(log2FoldChange)))
+adj_gost <- gost(query = adj_genes$ensembl_gene_id,
+                organism = "mmusculus", ordered_query = TRUE,
+                evcodes = TRUE)
+```
+
+```{r}
+adj_gost$result %>%
+  select(term_name, p_value, term_size, intersection_size, recall, source, intersection) %>%
+  arrange(desc(recall)) %>%
+  filter(source == "GO:BP" | source == "GO:MF" | source == "GO:CC") %>%
+  datatable(rownames = FALSE, caption = "GO: Adjusted for Diet Significant GSEA")
+adj_gost$result %>%
+  select(term_name, p_value, term_size, intersection_size, recall, source, intersection) %>%
+  arrange(desc(recall)) %>%
+  filter(source == "REAC") %>%
+  datatable(rownames = FALSE, caption = "REAC: Adjusted for Diet Significant GSEA")
+adj_gost$result %>%
+  select(term_name, p_value, term_size, intersection_size, recall, source, intersection) %>%
+  arrange(desc(recall)) %>%
+  filter(source == "KEGG") %>%
+  datatable(rownames = FALSE, caption = "KEGG: Adjusted for Diet Significant GSEA")
+```
+
+```{r}
+##### CL Enriched
+gostplot(adj_gost, capped = FALSE, interactive = TRUE)
+```
+
+```{r}
+library(openxlsx)
+res_df <- res %>%
+  filter(padj < 0.05 & abs(log2FoldChange) >= .5) %>%
+    arrange(desc(log2FoldChange)) %>%
+    select(-Row.names, -lfcSE, -stat, -pvalue, -ensembl_gene_id, -version, -transcript_version, -mgi_symbol)
+openxlsx::write.xlsx(res_df, file = "excel/adjdiet_DE.xlsx")
+```
+
+## IDD versus IAD after adjusting for treatment
+
+```{r, warning = FALSE}
+countdata <- exprs(mm38_filt)
+coldata <- colData(mm38_filt)
+ddsMat <- DESeqDataSetFromMatrix(countData = countdata,
+                                 colData = coldata,
+                                 design = ~ treatment + diet)
+dds <- DESeq(ddsMat)
+res <- results(dds)
+res <- merge(as.data.frame(res), hisat_annot, by = 0)
+res <- res[!is.na(res$padj),]
+res <- set_sig(res, factors = c("IDD \n Enriched", "IAD \n Enriched"))
+volc_plot(res_tbl = res, type = "plotly", title = "IDD versus IAD after adjusting for Treatment")
+
+res %>%
+  filter(padj < 0.05 & abs(log2FoldChange) >= 1) %>%
+  select("ensembl_gene_id", "mgi_symbol", "description", "log2FoldChange", "padj", "Significance") %>%
+  arrange(desc(log2FoldChange)) %>%
+  datatable(rownames = FALSE)
+```
+
+**GSEA**
+
+```{r}
+adj_genes <- res %>%
+  filter(padj < 0.05 & abs(log2FoldChange) >= 1) %>%
+    arrange(desc(abs(log2FoldChange)))
+adj_gost <- gost(query = adj_genes$ensembl_gene_id,
+                organism = "mmusculus",
+                ordered_query = TRUE,
+                evcodes = TRUE)
+```
+
+```{r}
+adj_gost$result %>%
+  select(term_name, p_value, term_size, intersection_size, recall, source, intersection) %>%
+  arrange(desc(recall)) %>%
+  filter(source == "GO:BP" | source == "GO:MF" | source == "GO:CC") %>%
+  datatable(rownames = FALSE, caption = "GO: Diet after Adjusted for Treatment Significant GSEA")
+adj_gost$result %>%
+  select(term_name, p_value, term_size, intersection_size, recall, source, intersection) %>%
+  arrange(desc(recall)) %>%
+  filter(source == "REAC") %>%
+  datatable(rownames = FALSE, caption = "REAC: Diet after Adjusted for Treatment Significant GSEA")
+adj_gost$result %>%
+  select(term_name, p_value, term_size, intersection_size, recall, source, intersection) %>%
+  arrange(desc(recall)) %>%
+  filter(source == "KEGG") %>%
+  datatable(rownames = FALSE, caption = "KEGG: Diet after Adjusted for Treatment Significant GSEA")
+```
+
+```{r}
+##### CL Enriched
+gostplot(adj_gost, capped = FALSE, interactive = TRUE)
+```
+
+```{r}
+gseaplot_GO_diet_adjtreat <- adj_gost$result %>%
+  select(term_name, p_value, term_size, intersection_size, recall, source, intersection) %>%
+  arrange(desc(recall)) %>%
+  filter(source == "GO:BP" | source == "GO:MF" | source == "GO:CC") %>%
+  head(n = 10) %>%
+    ggplot(aes(x = recall, y = reorder(term_name, recall), fill = p_value)) +
+  geom_bar(stat = "identity")+
+  scale_fill_continuous(low = "blue", high = "red") +
+  theme_bw()+
+  ylab("") +
+  xlab("GSEA Score")
+
+gseaplot_REAC_diet_adjtreat <- adj_gost$result %>%
+  select(term_name, p_value, term_size, intersection_size, recall, source, intersection) %>%
+  arrange(desc(recall)) %>%
+  filter(source == "REAC") %>%
+  head(n = 10) %>%
+    ggplot(aes(x = recall, y = reorder(term_name, recall), fill = p_value)) +
+  geom_bar(stat = "identity")+
+  scale_fill_continuous(low = "blue", high = "red") +
+  theme_bw()+
+  ylab("") +
+  xlab("GSEA Score")
+
+gseaplot_GO_diet_adjtreat
+gseaplot_REAC_diet_adjtreat
+```
+
+```{r}
+library(openxlsx)
+res_df <- res %>%
+  filter(padj < 0.05 & abs(log2FoldChange) >= .5) %>%
+    arrange(desc(log2FoldChange)) %>%
+    select(-Row.names, -lfcSE, -stat, -pvalue, -ensembl_gene_id, -version, -transcript_version, -hgnc_symbol)
+openxlsx::write.xlsx(res_df, file = "excel/adjtreatment_DE.xlsx")
+```

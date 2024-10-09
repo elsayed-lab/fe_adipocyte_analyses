@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+umask 002
+
+source /versions.txt
+
+export CLICOLOR=true
+export CONDA_DEFAULT_ENV=hpgltools
+export CONDA_PREFIX=/sw/local/conda/${CONTAINER_VERSION}/envs/hpgltools
+export CONDA_SHLVL=1
+export CPUS=$(( $(cat /proc/cpuinfo | grep -c processor) - 1))
+export DEBIAN_FRONTEND=noninteractive
+export EDITOR=vi
+export FTP_PASSIVE=1
+export GREP_COLORS=32
+export GREP_OPTIONS=--color=auto
+export HACKPAGER=more
+export LC_ALL="C"
+export LESSOPEN="| /usr/bin/lesspipe %s"
+export LESS="-RX"
+export MAKEFLAGS="-j $(grep -c ^processor /proc/cpuinfo)"
+export MAMBA_EXE=/usr/bin/micromamba
+export MAMBA_ROOT_PREFIX="/sw/local/conda/${CONTAINER_VERSION}"
+export PAGER=less
+export PATH=/sw/local/conda/${CONTAINER_VERSION}/envs/hpgltools/bin:/sw/local/conda/${CONTAINER_VERSION}/condabin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export RENV_PATHS_CACHE=/sw/local/R/renv_cache
+## I am not sure if these R_LIBS are appropriate with renv.
+export R_LIBS_USER=/data/R
+export R_LIBS_SITE="${R_LIBS_USER}"
+export R_MAX_NUM_DLLS=512

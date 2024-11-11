@@ -2,7 +2,7 @@
 # Introduction
 
 Define, create, and run the analyses used in the paper:
-""
+"Iron in Adipocyte Browning: A Key Regulator of Adenylyl Cyclase Activation."
 
 This repository contains everything one should need to create a
 singularity container which is able to run all of the various R
@@ -13,18 +13,18 @@ the container and play with the data.
 
 # Cheater installation
 
-Periodically I put a copy of the pre-built container here:
+I occasionally put a copy of pre-built containers here:
 
 [https://elsayedsingularity.umiacs.io/](https://elsayedsingularity.umiacs.io/)
 
-It probably does not have the newest changes.
+It probably does not have the newest changes and is slightly limited by our available disk space.
 
 # Installation
 
 Grab a copy of the repository:
 
 ```{bash, eval=FALSE}
-git pull https://github.com/elsayed-lab/template.git
+git pull https://github.com/elsayed-lab/fe_adipocyte_analyses.git
 ```
 
 The resulting directory should contain a few subdirectories of note:
@@ -53,7 +53,7 @@ for running all of the analyses in Rmd/.
 ```{bash, eval=FALSE}
 make
 ## Really, this just runs:
-sudo -E singularity build tmrc3_analyses.sif tmrc3_analyses.yml
+sudo -E singularity build fe_adipocyte_analyses.sif fe_adipocyte_analyses.yml
 ```
 
 ## Notes on the Makefile
@@ -70,26 +70,12 @@ of the container in different environments:
     possible to use a global renv cache directory in order to find and
     quickly install the various packages used by the container.
     If it is not set, the container will always take ~ 5 hours to
-    build.  If it is set, then it takes ~ 4 minutes (assuming all the
+    build.  If it is set, then it takes ~ 2 minutes (assuming all the
     prerequisites are located in the cache already, YMMV).
 2.  PARALLEL: Some tasks in the container will run across all
     available cpu cores, thus taking up significantly more memory.
-    Notably, the differential expression analyses can take up to ~
-    180G of ram when PARALLEL is on (at least on my computer).  If
-    this is set to 'FALSE' in the Makefile, then it will take a bit
-    longer, but the maximum memory usage falls to ~ 30-40G.  If your
-    machine has less than that, then I think some things are doomed to
-    fail.
-3.  methods: Not in the Makefile.  By default, my pairwise
-    differential expression method attempts to perform ~ 6 different
-    ways of doing the analyses.  This is the primary reason it is so
-    memory hungry. An easy way to dramatically decrease the memory
-    usage and time is to edit the top of the 01datastructures.Rmd
-    document and set some more elements of the 'methods' variable to
-    FALSE.  Just note that our tables primarily rely on the DESeq2
-    results, so if you turn that off, you will by definition get
-    different results.  Also, it is fun to poke at the different
-    methods and see how their various assumptions affect the results.
+    If this is set to 'FALSE' in the Makefile, then it will use one
+    core, take longer, but use less memory.
 
 # Generating the html/rda/excel output files
 
@@ -101,7 +87,7 @@ along with all of the various excel/rda/image outputs into the current
 working directory of the host system.
 
 ```{bash, eval=FALSE}
-./template.sif
+./fe_adipocyte_analyses.sif
 ```
 
 # Playing around inside the container
@@ -110,10 +96,10 @@ If, like me, you would rather poke around in the container and watch
 it run stuff, either of the following commands should get you there:
 
 ```{bash, eval=FALSE}
-make template.overlay
+make fe_adipocyte_analyses.overlay
 ## That makefile target just runs:
-mkdir -p template
-sudo singularity shell --overlay template_overlay template.sif
+mkdir -p fe_adipocyte_analyses
+sudo singularity shell --overlay  fe_adipocyte_analyses  fe_adipocyte_analyses.sif
 ```
 
 ### The container layout and organization
@@ -136,31 +122,7 @@ This working tree resides in /data/ and comprises the following:
   container attempts to duplicate.  If one wishes to create an R
   environment on one's actual host which duplicates every version of
   every package installed, these files provide that ability.
-* The various .Rmd files : These are numerically named analysis files.
-  The 00preprocessing does not do anything, primarily because I do not
-  think anyone wants a 6-10Tb container (depending on when/what is
-  cleaned during processing)!  All files ending in _commentary are
-  where I have been putting notes and muttering to myself about what
-  is happening in the analyses.  01datasets is the parent of all the
-  other files and is responsible for creating the data structures
-  which are used in every file which follows.  The rest of the files
-  are basically what they say on the tin: 02visualization has lots of
-  pictures, 03differential_expression* comprises DE analyses of
-  various data subsets, 04lrt_gsva combines a series of likelihood
-  ratio tests and GSVA analyses which were used (at least by me) to
-  generate hypotheses and look for other papers which have similar gene
-  signatures (note that the GSVA analysis in the container does not
-  include the full mSigDB metadata and so is unlikely to include all
-  the paper references, I did include the code blocks which use the
-  full 7.2 data, so it should be trivial to recapitulate that if one
-  signs up a Broad and downloads the relevant data).  05wgcna is a
-  copy of Alejandro's WGCNA work with some minor modifications.
-  06classifier* is a series of documents I wrote to learn how to play
-  with ML classifiers and was explicitly intended to not be published,
-  but just a fun exercise.  07varcor_regression is a copy of Theresa's
-  work to examine correlations between various metadata factors,
-  surrogate variables, and her own explorations in ML; again with some
-  minor changes which I think I noted.
+* The various .Rmd files : These comprise the analyses performed by Theresa.
 * /usr/local/bin/* : This comprises the bootstrap scripts used to
   create the container and R environment, the runscript.sh used to run
   R/knitr on the Rmd documents, and some configuration material in
@@ -225,102 +187,3 @@ the resulting environment in two ways:
    system-installed R.
 2. create a bootstrap_renv.R and use it during the singularity
    bootstrapping process.
-
-Note: I executed the following _after_ running through all of the R
-files in the working tree, so everything it needs should be attached
-in the extant R session.  I am not sure if that is required, I think
-renv might scan the cwd for dependencies or some other odd shenanigans.
-
-## Performed in the working tree of the container
-
-```{r, eval=FALSE}
-library(renv)
-setwd("/sw/singularity/cure_fail_host_analyses/data")
-renv::init()
-```
-
-The above created the appropriate renv.lock and renv directory with
-the new (empty) library and json configuration.  I suspect I will need
-to manually edit one or more of these for a couple of git-derived
-packages.  With that caveat in mind, let us create a fresh tree in tmp
-and see what happens when I try to recreate the environment and use
-it...
-
-## Performed in /tmp/ using the bare-bones /usr/bin/R
-
-```{bash, eval=FALSE}
-mkdir -p /tmp/reproducible_test/renv
-cd  /tmp/reproducible_test/renv
-rsync -av /sw/singularity/cure_fail_host_analyses/data/renv* .
-/usr/bin/R
-## My 'normal' R is from an environment-module and has a pretty complete bioconductor
-## installation for each of the last few bioconductor revisions. (I am a bit of a code hoarder)
-## I am doing this in emacs via the interactive shell, YMMV
-options(renv.config.install.transactional = FALSE)
-source("renv/activate.R")
-renv::restore()
-renv::install("abelew/hpgltools")
-```
-
-yeah, this is pretty much like I remember, I love that it has all the
-versions faithfully reproduced, but it is doing everything in serial
-and will therefore take a seriously long time.  But, if it works I can
-suck that up as the price of not being frustrated.  Watching it, I am
-intrigued by the number of packages which give an error when
-downloading, but are then successfully downloaded a second time.
-
-<pre>
-- Downloading bslib from CRAN ...                   ERROR [error code 22]
-- Downloading bslib from CRAN ...               OK [5.8 Mb in 0.17s]
-- Downloading sass from CRAN ...                    ERROR [error code 22]
-- Downloading sass from CRAN ...                OK [2.9 Mb in 0.15s]
-</pre>
-
-Oh, it turns out having multiple repositories configured leads to the
-above...  well, that is annoying.  Perhaps for this process I should
-remove any repos options?
-
-I am going to check where it is downloading everything to and see if I can
-cache the downloads to make rebuilds of the container faster.  The
-documentation makes explicit that it has a shared cache across all
-packages, but I am not seeing any evidence in my testing that it is
-being used on my base-metal host.  Assuming I get it working, I can
-tell singularity to bind-mount that tree (wherever it is) and
-that should be pretty awesome.  The docs tell me to look in
-~/.cache/R/renv/cache ...  At least while the above is running that is
-not getting populated (it looks like the downloads are going to
-~/.cache/R/renv/source, so good enough for me?) .  I will check again
-when(if) it finishes.  But I think therefore I will very much want to
-have ~/.cache bind mounted when setting up the container image.
-
-Oh, they nicely provide an environment variable for a global renv
-cache: RENV_PATHS_CACHE
-
-So, I should be able to put this in my /sw (I'm thinking
-/sw/local/R/renv_cache done!) tree and then access it from the user which is
-creating the docker/singularity container.  Oh man I hope that works,
-I always feel like such an arsehole when I see the singularity install
-log downloading everything.
-
-In addition, a few things which compiled just fine using my
-environment-modules R fail to compile in this environment.  I am not
-sure why this would be, I have the same shell environment for all the
-dependencies/gcc/etc as in my guix/environment-module R, hmph.
-
-Example: S4Vectors causes restore() to stop() due to:
-
-Rle_class.c:1136:17: error: format not a string literal and no format arguments [-Werror=format-security]
- 1136 |                 error(errmsg);
-
-Now, at a glance I can see that gcc _would_ be completely fine
-compiling this except the S4Vectors compilation has -Wformat on. So that
-is annoying but easily fixed.  ok wth I just manually installed
-S4Vectors without a problem, no -Wall or -Wformat was set or anything;
-is renv messing with CFLAGS (if so I cannot find where)?  This is
-infuriating.  Nothing in my shell environment is setting Wall/Wformat,
-wtf?  Ooohh perhaps the debian installed R is setting Wall in
-/etc/R/Makeconf or whatever that file is...  Bingo, ok, turned off
-Wformat in it.  Let us see if that helps the restore() (which, btw
-still stop()s on error!
-
-# Final notes
